@@ -8,7 +8,13 @@ import pandas as pd
 # Updated Configuration using Streamlit Secrets
 TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
 CHAT_ID = st.secrets["CHAT_ID"]
-exchange = ccxt.binance()
+exchange = ccxt.binance({
+    'urls': {
+        'api': {
+            'public': 'https://data.binance.com/api/v3',
+        }
+    }
+})
 
 def send_ping(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={CHAT_ID}&text={message}"
@@ -34,4 +40,5 @@ if st.button("Check Flags Now"):
     st.write(f"ZEC Price: {zec_price} | BTC RSI: {btc_rsi:.2f} | Flags: {flags}")
     
     if flags >= 2:
+
         send_ping(f"🚨 SIGNAL: {flags} flags active! ZEC at {zec_price}")
