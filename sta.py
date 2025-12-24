@@ -29,16 +29,14 @@ st.sidebar.markdown("---")
 st.sidebar.header("Current Position Info")
 pos_direction = st.sidebar.selectbox("Current Direction", ["None", "Short", "Long"])
 unit_type = st.sidebar.radio("Input Size in:", ["ZEC Units", "USDT Value"])
-current_size = st.sidebar.number_input(f"Current Size ({unit_type})", value=0.0)
+current_size = st.sidebar.number_input(f"Current Size ({unit_type})", value=5000.0)
 
 # 3. MAIN LOGIC
 if st.button("🔄 Analyze & Calculate Strategy"):
     data, avg_vol, price = get_indicators('ZEC/USDT')
     
-    # ⚡ FLAGS (Dynamic based on Direction)
-    # If None/Short, look for Long signals. If Long, look for Short signals.
+    # Flags logic
     looking_for_long = (pos_direction != "Long")
-    
     f1 = data['STOCHRSIk_14_14_3_3'] < 20 if looking_for_long else data['STOCHRSIk_14_14_3_3'] > 80
     f2 = data['ema_9'] > data['ema_21'] if looking_for_long else data['ema_9'] < data['ema_21']
     f3 = data['rsi'] < 45 if looking_for_long else data['rsi'] > 55
@@ -52,50 +50,43 @@ if st.button("🔄 Analyze & Calculate Strategy"):
     col_f4.metric("Vol Spike", "🟢 HIGH" if f4 else "LOW")
 
     # 4. CALCULATION
-    total_pos_val = risk_usd / (sl_dist_pct / 100)
+    total_new_pos = risk_usd / (sl_dist_pct / 100)
     current_val_usdt = current_size if unit_type == "USDT Value" else current_size * price
     
     st.markdown("---")
     tab1, tab2 = st.tabs(["🔄 Reversal (Flip)", "➕ Continuation (Add/Re-entry)"])
 
-    # TAB 1: THE FLIP
+    # TAB 1: THE FLIP (Price Points Added)
     with tab1:
         st.header(f"Flip Strategy for ${price:,.2f}")
         if pos_direction != "None":
-            phase1_entry = total_pos_val * 0.25
+            phase1_entry = total_new_pos * 0.25
             flip_order = current_val_usdt + phase1_entry
             action = "BUY" if pos_direction == "Short" else "SELL"
             st.warning(f"**Action**: {action} **${flip_order:,.2f}** to close and reverse.")
             
+            # Reversal usually happens deeper in the flush
             flip_df = pd.DataFrame({
-                "Step": ["1. Flip Order", "2. Scale (+45m)", "3. Final (+90m)"],
-                "Amount ($)": [f"${flip_order:,.2f}", f"${total_pos_val*0.35:,.2f}", f"${total_pos_val*0.40:,.2f}"],
-                "Target": ["Immediate", "Flush Zone", "Exhaustion Zone"]
+                "Step": ["1. The Flip", "2. Scale (+45m)", "3. Final (+90m)"],
+                "Price Point": [f"${price:,.2f}", f"${price*0.992:,.2f}", f"${price*0.985:,.2f}"],
+                "Order Amount ($)": [f"${flip_order:,.2f}", f"${total_new_pos*0.35:,.2f}", f"${total_new_pos*0.40:,.2f}"],
+                "Target Zone": ["Immediate Pivot", "Flush Zone ($405)", "Exhaustion Zone ($380)"]
             })
             st.table(flip_df)
         else:
-            st.info("No position to flip. Use continuation tab or enter fresh.")
+            st.info("No position to flip.")
 
-    # TAB 2: THE ADD (CONTINUATION)
+    # TAB 2: THE ADD (Price Points for Re-shorting)
     with tab2:
         st.header(f"Continuation Strategy for ${price:,.2f}")
-        # Logic: If Short, we want to 'Add' on relief rallies (higher price).
-        # If Long, we want to 'Add' on dips (lower price).
-        mult = 1.008 if pos_direction == "Short" else 0.992
+        # If short, we want to add on bounces (Higher price)
+        # If long, we want to add on dips (Lower price)
+        price_step = 1.008 if pos_direction == "Short" else 0.992
         
         cont_df = pd.DataFrame({
-            "Phase": ["Add 1 (Next Relief/Dip)", "Add 2", "Add 3"],
-            "Price Point": [f"${price*mult:,.2f}", f"${price*(mult**2):,.2f}", f"${price*(mult**3):,.2f}"],
-            "Add Amount ($)": [f"${total_pos_val*0.25:,.2f}", f"${total_pos_val*0.35:,.2f}", f"${total_pos_val*0.40:,.2f}"],
-            "Logic": ["Test Resistance" if pos_direction=="Short" else "Test Support", "Scale Heavy", "Full Load"]
+            "Phase": ["Add 1", "Add 2", "Add 3"],
+            "Price Point": [f"${price*price_step:,.2f}", f"${price*(price_step**2):,.2f}", f"${price*(price_step**3):,.2f}"],
+            "Add Amount ($)": [f"${total_new_pos*0.25:,.2f}", f"${total_new_pos*0.35:,.2f}", f"${total_pos_val*0.40:,.2f}"],
+            "Strategy": ["Test Resistance" if pos_direction=="Short" else "Test Support", "Scale Heavy", "Full Position"]
         })
         st.table(cont_df)
-
-    # 5. RISK SUMMARY
-    st.subheader("Active Management Goals")
-    avg_e = price * (0.992 if looking_for_long else 1.008)
-    sl_p = avg_e * (1 - (sl_dist_pct / 100)) if looking_for_long else avg_entry * (1 + (sl_dist_pct / 100))
-    
-    g1, g2 = st.columns(2)
-    g1.metric("Stop Loss", f"${sl_p:,.2f}")
-    g2.metric("New Liquidation Gap", f"{sl_dist_pct + 1:.1f}%")
