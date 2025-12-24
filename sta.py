@@ -29,13 +29,13 @@ st.sidebar.markdown("---")
 st.sidebar.header("Current Position Info")
 pos_direction = st.sidebar.selectbox("Current Direction", ["None", "Short", "Long"])
 unit_type = st.sidebar.radio("Input Size in:", ["ZEC Units", "USDT Value"])
-current_size = st.sidebar.number_input(f"Current Size ({unit_type})", value=5000.0)
+current_size = st.sidebar.number_input(f"Current Size ({unit_type})", value=0.0)
 
 # 3. MAIN LOGIC
 if st.button("🔄 Analyze & Calculate Strategy"):
     data, avg_vol, price = get_indicators('ZEC/USDT')
     
-    # Flags logic
+    # Logic for flags (Restored)
     looking_for_long = (pos_direction != "Long")
     f1 = data['STOCHRSIk_14_14_3_3'] < 20 if looking_for_long else data['STOCHRSIk_14_14_3_3'] > 80
     f2 = data['ema_9'] > data['ema_21'] if looking_for_long else data['ema_9'] < data['ema_21']
@@ -49,14 +49,13 @@ if st.button("🔄 Analyze & Calculate Strategy"):
     col_f3.metric("RSI Level", f"{data['rsi']:.1f}", "🟢 SIGNAL" if f3 else "NEUTRAL")
     col_f4.metric("Vol Spike", "🟢 HIGH" if f4 else "LOW")
 
-    # 4. CALCULATION
+    # 4. CALCULATION (Fixing the NameError here)
     total_new_pos = risk_usd / (sl_dist_pct / 100)
     current_val_usdt = current_size if unit_type == "USDT Value" else current_size * price
     
     st.markdown("---")
     tab1, tab2 = st.tabs(["🔄 Reversal (Flip)", "➕ Continuation (Add/Re-entry)"])
 
-    # TAB 1: THE FLIP (Price Points Added)
     with tab1:
         st.header(f"Flip Strategy for ${price:,.2f}")
         if pos_direction != "None":
@@ -65,7 +64,6 @@ if st.button("🔄 Analyze & Calculate Strategy"):
             action = "BUY" if pos_direction == "Short" else "SELL"
             st.warning(f"**Action**: {action} **${flip_order:,.2f}** to close and reverse.")
             
-            # Reversal usually happens deeper in the flush
             flip_df = pd.DataFrame({
                 "Step": ["1. The Flip", "2. Scale (+45m)", "3. Final (+90m)"],
                 "Price Point": [f"${price:,.2f}", f"${price*0.992:,.2f}", f"${price*0.985:,.2f}"],
@@ -74,19 +72,16 @@ if st.button("🔄 Analyze & Calculate Strategy"):
             })
             st.table(flip_df)
         else:
-            st.info("No position to flip.")
+            st.info("No position to flip. Enter fresh or use Continuation tab.")
 
-    # TAB 2: THE ADD (Price Points for Re-shorting)
     with tab2:
         st.header(f"Continuation Strategy for ${price:,.2f}")
-        # If short, we want to add on bounces (Higher price)
-        # If long, we want to add on dips (Lower price)
         price_step = 1.008 if pos_direction == "Short" else 0.992
         
         cont_df = pd.DataFrame({
             "Phase": ["Add 1", "Add 2", "Add 3"],
             "Price Point": [f"${price*price_step:,.2f}", f"${price*(price_step**2):,.2f}", f"${price*(price_step**3):,.2f}"],
-            "Add Amount ($)": [f"${total_new_pos*0.25:,.2f}", f"${total_new_pos*0.35:,.2f}", f"${total_pos_val*0.40:,.2f}"],
+            "Add Amount ($)": [f"${total_new_pos*0.25:,.2f}", f"${total_new_pos*0.35:,.2f}", f"${total_new_pos*0.40:,.2f}"],
             "Strategy": ["Test Resistance" if pos_direction=="Short" else "Test Support", "Scale Heavy", "Full Position"]
         })
         st.table(cont_df)
