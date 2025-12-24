@@ -1,74 +1,78 @@
 import streamlit as st
 import ccxt
-import requests
-import pandas_ta as ta
 import pandas as pd
+import pandas_ta as ta
+import requests
 
-# CONFIGURATION
-# Updated Configuration using Streamlit Secrets
+# CONFIGURATION (Use Streamlit Secrets for real deployment)
 TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
 CHAT_ID = st.secrets["CHAT_ID"]
-# Change the exchange to binanceus
 exchange = ccxt.binanceus()
 
 def send_ping(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={CHAT_ID}&text={message}"
     requests.get(url)
 
-def get_rsi(symbol):
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
-    df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
-    return df.ta.rsi(length=14).iloc[-1]
-
-def check_volume_spike(symbol, timeframe='15m', lookback=20, multiplier=2.0):
-    """Detects if current volume is significantly higher than the average."""
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=lookback + 1)
+def get_indicators(symbol, timeframe='15m'):
+    """Fetches OHLCV and calculates multiple technical indicators."""
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=100)
     df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
     
-    current_vol = df['vol'].iloc[-1]
-    avg_vol = df['vol'].iloc[:-1].mean() # Average of previous candles
+    # RSI (Standard)
+    df['rsi'] = ta.rsi(df['close'], length=14)
     
-    is_spike = current_vol > (avg_vol * multiplier)
-    return is_spike, current_vol, avg_vol
-
-# SITE FRONTEND
-st.title("ZEC Multi-Flag Radar")
-
-if st.button("Check Flags Now"):
-    # 1. Fetch Price and RSIs
-    zec_price = exchange.fetch_ticker('ZEC/USDT')['last']
-    btc_rsi = get_rsi('BTC/USDT')
-    eth_rsi = get_rsi('ETH/USDT')
+    # Stochastic RSI (Loose/Sensitive)
+    stoch_rsi = ta.stochrsi(df['close'], length=14, rsi_length=14, k=3, d=3)
+    df = pd.concat([df, stoch_rsi], axis=1)
     
-    # 2. Check Volume Spike (2x multiplier)
-    zec_spike, cur_v, avg_v = check_volume_spike('ZEC/USDT')
+    # EMA Crossover (Fast trend)
+    df['ema_9'] = ta.ema(df['close'], length=9)
+    df['ema_21'] = ta.ema(df['close'], length=21)
     
-    flags = 0
-    flag_details = []
+    return df.iloc[-1], df.iloc[:-1]['vol'].mean()
 
-    if btc_rsi < 30: 
-        flags += 1
-        flag_details.append("BTC RSI Oversold")
-    if eth_rsi < 30: 
-        flags += 1
-        flag_details.append("ETH RSI Oversold")
-    if zec_spike:
-        flags += 1
-        flag_details.append(f"ZEC Volume Spike ({cur_v:.0f} vs avg {avg_v:.0f})")
+# DASHBOARD UI
+st.title("ZEC Master Signal Dashboard")
+tab1, tab2 = st.tabs(["🚀 HTF Reversal (Safe)", "⚡ Intraday Scalper (Loose)"])
 
-    # Display results on screen
-    st.write(f"**Current ZEC Price:** ${zec_price}")
-    st.write(f"**BTC RSI:** {btc_rsi:.2f} | **ETH RSI:** {eth_rsi:.2f}")
-    st.write(f"**Flags Triggered:** {flags}")
-    
-    if flag_details:
-        st.info("Active Signals: " + ", ".join(flag_details))
+if st.button("Refresh All Flags"):
+    # Data Fetching
+    zec_data, zec_avg_vol = get_indicators('ZEC/USDT')
+    btc_data, _ = get_indicators('BTC/USDT')
+    eth_data, _ = get_indicators('ETH/USDT')
 
-    # 3. Send Telegram Ping if 2 or more flags hit
-    if flags >= 2:
-        msg = f"🚨 SIGNAL: {flags} flags active!\nZEC Price: ${zec_price}\nSignals: {', '.join(flag_details)}"
-        send_ping(msg)
-        st.success("Telegram Alert Sent!")
-    else:
-        st.warning("Not enough flags for an alert.")
+    # --- AREA 1: HTF REVERSAL (STRICT) ---
+    with tab1:
+        st.subheader("High-Conviction Signals")
+        htf_flags = 0
+        if btc_data['rsi'] < 35: htf_flags += 1
+        if eth_data['rsi'] < 35: htf_flags += 1
+        if zec_data['vol'] > (zec_avg_vol * 2.5): htf_flags += 1
+        
+        st.metric("HTF Confluence Score", f"{htf_flags} / 3")
+        if htf_flags >= 2: st.success("🔥 MAJOR REVERSAL SIGNAL DETECTED")
 
+    # --- AREA 2: INTRADAY SCALPER (LOOSE) ---
+    with tab2:
+        st.subheader("High-Frequency Scalp Flags")
+        # Define Loose Conditions
+        f1 = zec_data['STOCHRSIk_14_14_3_3'] < 20   # Stoch RSI Oversold
+        f2 = zec_data['ema_9'] > zec_data['ema_21'] # Bullish EMA Cross
+        f3 = zec_data['rsi'] < 45                   # Early RSI recovery
+        f4 = zec_data['vol'] > (zec_avg_vol * 1.3)  # Moderate Vol Spike
+        
+        # Quantity over quality for the loose tab
+        scalp_flags = sum([f1, f2, f3, f4])
+        
+        # Color-coded tiles using Columns
+        c1, c2, c3, c4 = st.columns(4)
+        c1.write("Stoch RSI" if not f1 else "🟢 Stoch RSI")
+        c2.write("EMA Trend" if not f2 else "🟢 EMA Trend")
+        c3.write("RSI Early" if not f3 else "🟢 RSI Early")
+        c4.write("Vol Bump" if not f4 else "🟢 Vol Bump")
+        
+        st.metric("Scalp Strength", f"{scalp_flags} / 4")
+        
+        if scalp_flags >= 3:
+            st.warning("⚡ SCALP OPPORTUNITY: High Confluence")
+            send_ping(f"⚡ Scalp Signal: {scalp_flags}/4 Flags active for ZEC at {zec_data['close']}")
