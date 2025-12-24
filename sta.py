@@ -91,4 +91,4 @@ if st.button("🔄 Analyze & Calculate Reversal"):
     g1, g2, g3 = st.columns(3)
     g1.metric("Estimated Avg Entry", f"${avg_entry:,.2f}")
     g2.metric("Stop Loss", f"${sl_price:,.2f}")
-    g3.metric("
+    g3.metric("Take Profit", f"${tp_price:,.2f}")
